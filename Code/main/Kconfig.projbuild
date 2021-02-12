@@ -1,0 +1,15 @@
+menu "Wi-Fi Configuration"
+
+config WIFI_SSID
+    string "SSID"
+    default "wifi"
+
+config WIFI_PASSWORD
+    string "Password"
+    default "12345678"
+
+config ESP_MAXIMUM_RETRY
+	int "Maximum retry"
+    default 5
+
+endmenu
