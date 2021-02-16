@@ -23,8 +23,8 @@
 #define SERVO_PIN GPIO_NUM_18 // servo pin
 #define BUTTON_PIN GPIO_NUM_19 // push-button pin
 #define LED_PIN GPIO_NUM_5 // led pin
-#define FEED_RATE 1722 // servo feed ratio
-#define FEED_REVERSAL 1333 // servo feed reversal ratio
+#define FEED_RATE 1333 // servo feed ratio
+#define FEED_REVERSAL 1722 // servo feed reversal ratio
 #define FEED_STOP 1500 // servo stop
 
 // http headers and web pages
