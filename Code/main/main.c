@@ -19,8 +19,13 @@
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
 
+// set 1 for stepper motor or 0 for servo
+#define STEPPER_MOTOR 1
+
 #define HTTP_PORT 80 // http port number
-#define SERVO_PIN GPIO_NUM_18 // servo pin
+#define STEPPER_DIR_PIN GPIO_NUM_21 // stepper motor direction pin
+#define STEPPER_EN_PIN GPIO_NUM_22 // stepper motor enable pin
+#define MCPWM_PIN GPIO_NUM_18 // mcpwm pin to control servo or stepper
 #define BUTTON_PIN GPIO_NUM_19 // push-button pin
 #define LED_PIN GPIO_NUM_5 // led pin
 #define FEED_RATE 1333 // servo feed ratio
@@ -113,12 +118,16 @@ void wifi_init_sta()
     vEventGroupDelete(s_wifi_event_group);
 }
 
-void servo_init()
+void mcpwm_pin_init()
 {
-    mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, SERVO_PIN); // set GPIO 18 as PWM0A, to which servo is connected
+    mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, MCPWM_PIN); // set GPIO 18 as PWM0A, to which servo or stepper is connected
 
     mcpwm_config_t pwm_config;
+#if STEPPER_MOTOR == 1
+    pwm_config.frequency = 150; // frequency = 150Hz
+#else
     pwm_config.frequency = 50; // frequency = 50Hz, i.e. for every servo motor time period should be 20ms
+#endif
     pwm_config.cmpr_a = 0; // duty cycle of PWMxA = 0
     pwm_config.cmpr_b = 0; // duty cycle of PWMxb = 0
     pwm_config.counter_mode = MCPWM_UP_COUNTER;
@@ -128,6 +137,9 @@ void servo_init()
 
 void gpio_pins_init()
 {
+#if STEPPER_MOTOR == 1
+    gpio_config_t step_dir_config, step_en_config;
+#endif
     gpio_config_t btn_config, led_config;
 
     btn_config.mode = GPIO_MODE_INPUT; // set as input
@@ -142,13 +154,41 @@ void gpio_pins_init()
     led_config.pull_down_en = GPIO_PULLDOWN_DISABLE; // disable pulldown
     gpio_config(&led_config);
 
+#if STEPPER_MOTOR == 1
+    step_dir_config.mode = GPIO_MODE_OUTPUT; // set as output
+    step_dir_config.pin_bit_mask = (1 << STEPPER_DIR_PIN); // bitmask
+    step_dir_config.pull_up_en = GPIO_PULLUP_DISABLE; // disable pullup
+    step_dir_config.pull_down_en = GPIO_PULLDOWN_DISABLE; // disable pulldown
+    gpio_config(&step_dir_config);
+
+    step_en_config.mode = GPIO_MODE_OUTPUT; // set as output
+    step_en_config.pin_bit_mask = (1 << STEPPER_EN_PIN); // bitmask
+    step_en_config.pull_up_en = GPIO_PULLUP_DISABLE; // disable pullup
+    step_en_config.pull_down_en = GPIO_PULLDOWN_DISABLE; // disable pulldown
+    gpio_config(&step_en_config);
+
+    gpio_set_level(STEPPER_EN_PIN, 1); // disable driver
+
+    gpio_set_level(STEPPER_DIR_PIN, 1); // set direction
+#endif
+
     gpio_set_level(LED_PIN, 0); // led off
 }
 
 void feed()
 {
     gpio_set_level(LED_PIN, 1); // led on
-
+#if STEPPER_MOTOR == 1
+    gpio_set_level(STEPPER_EN_PIN, 0); // enable driver
+    mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 50.0); // start feeding for 2s
+    vTaskDelay(2000 / portTICK_RATE_MS);
+    gpio_set_level(STEPPER_DIR_PIN, 0); // reverse direction for 0.5s to prevent clogging
+    vTaskDelay(500 / portTICK_RATE_MS);
+    gpio_set_level(STEPPER_DIR_PIN, 1); // continue feeding for 2s
+    vTaskDelay(2000 / portTICK_RATE_MS);
+    mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0.0); // stop feeding
+    gpio_set_level(STEPPER_EN_PIN, 1); // disable driver
+#else
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, FEED_RATE); // start feeding for 2s
     vTaskDelay(2000 / portTICK_RATE_MS);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, FEED_REVERSAL); // reverse direction for 0.5s to prevent clogging
@@ -156,7 +196,7 @@ void feed()
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, FEED_RATE); // continue feeding for 2s
     vTaskDelay(2000 / portTICK_RATE_MS);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, FEED_STOP); // stop feeding
-
+#endif
     gpio_set_level(LED_PIN, 0); // led off
 }
 
@@ -269,7 +309,7 @@ void app_main()
     esp_log_level_set("wifi", ESP_LOG_NONE);
     wifi_init_sta();
 
-    servo_init(); // init MCPWM servo pin
+    mcpwm_pin_init(); // init MCPWM pin
     gpio_pins_init(); // init GPIO for push-button and led
 
     // start the http server task
